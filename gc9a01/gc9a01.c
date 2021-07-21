@@ -1,5 +1,6 @@
 #include "gc9a01.h"
 #include "nrf_drv_spi.h"
+#include "nrfx_spim.h"
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
 #include "nrf_log.h"
@@ -7,7 +8,9 @@
 #include "nrf_log_default_backends.h"
 #include "app_error.h"
 
-#define ORIENTATION 2       // Set the display orientation 0,1,2,3
+#define ORIENTATION 2 // Set the display orientation 0,1,2,3
+
+#define SPI 1 // SPI (1) or SPIM (0) mode
 
 #define RESET_ON            nrf_gpio_pin_set(LCD_RES_Pin)
 #define RESET_OFF           nrf_gpio_pin_clear(LCD_RES_Pin)
@@ -16,18 +19,34 @@
 #define CS_ON               nrf_gpio_pin_set(LCD_CS_Pin)
 #define CS_OFF              nrf_gpio_pin_clear(LCD_CS_Pin)
 
-#define SPI_INSTANCE 0                                                    //SPI instance index.
-static const nrf_drv_spi_t lcd_spi = NRF_DRV_SPI_INSTANCE(SPI_INSTANCE);  //SPI instance. 
+#if defined(SPI) && (SPI)
+/***** SPI **************************************************************************/
+#define SPI_INSTANCE 0                                                   // SPI instance index.
+static const nrf_drv_spi_t lcd_spi = NRF_DRV_SPI_INSTANCE(SPI_INSTANCE); // SPI instance.
+static uint8_t m_tx_buf[3];                                              // TX buffer.
+/************************************************************************************/
+#else
+/***** SPIM *************************************************************************/
+#define SPIM_INSTANCE 0                                                 // SPI instance index.
+static const nrfx_spim_t lcd_spim = NRFX_SPIM_INSTANCE(SPIM_INSTANCE); // SPI instance.
+static uint8_t m_tx_buf[] = {0xff, 0xff, 0xff};                        // TX buffer.
+nrfx_spim_xfer_desc_t xfer_desc;
+/************************************************************************************/
+#endif
 
 /***** Structures *******************************************************************/
-struct GC9A01_frame frame;
-struct GC9A01_draw_prop fonts;
+struct GC9A01_frame frame;     // coordinates(X(start,end), Y(start,end)) frame, from 0 to 239
+struct GC9A01_draw_prop fonts; // conf using font
 /************************************************************************************/
 
 /***** Display write func ***********************************************************/
 void GC9A01_write_command(uint8_t cmd) {
     DC_OFF;
     CS_OFF;
+#if (!SPI)
+    xfer_desc.p_tx_buffer = &cmd;      // for SPIM
+    xfer_desc.tx_length = sizeof(cmd); // for SPIM
+#endif
     GC9A01_spi_tx(&cmd, sizeof(cmd));
     CS_ON;
 }
@@ -35,6 +54,10 @@ void GC9A01_write_command(uint8_t cmd) {
 void GC9A01_write_data(uint8_t *data, size_t len) {
     DC_ON;
     CS_OFF;
+#if (!SPI)
+    xfer_desc.p_tx_buffer = data; // for SPIM
+    xfer_desc.tx_length = len;    // for SPIM
+#endif
     GC9A01_spi_tx(data, len);
     CS_ON;
 }
@@ -56,13 +79,26 @@ void GC9A01_write_continue(uint8_t *data, size_t len) {
 
 /***** Hardware and soft func *******************************************************/
 void lcd_spi_init(void) {
+
+#if defined(SPI) && (SPI)
+    /* SPI */
     nrf_drv_spi_config_t spi_config = NRF_DRV_SPI_DEFAULT_CONFIG;
     spi_config.miso_pin = LCD_MISO_PIN;
     spi_config.mosi_pin = LCD_MOSI_PIN;
-    spi_config.sck_pin  = LCD_SCK_PIN;
+    spi_config.sck_pin = LCD_SCK_PIN;
     spi_config.frequency = NRF_DRV_SPI_FREQ_8M;
     APP_ERROR_CHECK(nrf_drv_spi_init(&lcd_spi, &spi_config, NULL, NULL));
+#else
+    /* SPIM */
+    nrfx_spim_config_t spim_config = NRFX_SPIM_DEFAULT_CONFIG;
+    spim_config.miso_pin = LCD_MISO_PIN;
+    spim_config.mosi_pin = LCD_MOSI_PIN;
+    spim_config.sck_pin = LCD_SCK_PIN;
+    spim_config.frequency = NRF_SPIM_FREQ_8M;
+    APP_ERROR_CHECK(nrfx_spim_init(&lcd_spim, &spim_config, NULL, NULL));
+#endif
 
+    /* GPIO for display */
     nrf_gpio_cfg_output(LCD_RES_Pin);
     nrf_gpio_cfg_output(LCD_CS_Pin);
     nrf_gpio_cfg_output(LCD_DC_Pin);
@@ -71,7 +107,11 @@ void lcd_spi_init(void) {
 }
 
 void GC9A01_spi_tx(uint8_t *data, size_t len) {
+#if defined(SPI) && (SPI)
     nrf_drv_spi_transfer(&lcd_spi, data, len, 0, 0);
+#else
+    nrfx_spim_xfer(&lcd_spim, &xfer_desc, 0); // for SPIM
+#endif
 }
 
 void GC9A01_init(void) {
@@ -339,7 +379,7 @@ void GC9A01A_sleep_mode(uint8_t Mode) {
 }
 /************************************************************************************/
 
-/***** Display frame func ***********************************************************/
+/***** Display picture func *********************************************************/
 void GC9A01_set_frame(struct GC9A01_frame frame) {
 
     uint8_t data[4];
@@ -433,11 +473,10 @@ void GC9A01_draw_pixel(int x, int y, uint16_t color) {
     frame.start.Y = y;
     frame.end.Y = y;
     GC9A01_set_frame(frame);
-    uint8_t color_new[3];
-    color_new[2] = (uint8_t)((color & 0x1F) << 3);   // blue
-    color_new[1] = (uint8_t)((color & 0x7E0) >> 3);  // green
-    color_new[0] = (uint8_t)((color & 0xF800) >> 8); // red
-    GC9A01_write(color_new, sizeof(color_new));
+    m_tx_buf[2] = (uint8_t)((color & 0x1F) << 3);    // blue
+    m_tx_buf[1] = (uint8_t)((color & 0x7E0) >> 3);   // green
+    m_tx_buf[0] = (uint8_t)((color & 0xF800) >> 8);  // red
+    GC9A01_write(m_tx_buf, sizeof(m_tx_buf));
     frame.start.X = 0;
     frame.end.X = 239;
     frame.start.Y = 0;
@@ -594,6 +633,7 @@ void GC9A01_draw_char(uint16_t x, uint16_t y, uint8_t c) {
             else
             {
                 GC9A01_draw_pixel((x + j), y, fonts.BackColor);
+                // continue;
             }
         }
         y++;

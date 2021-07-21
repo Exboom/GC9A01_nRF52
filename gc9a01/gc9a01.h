@@ -5,7 +5,6 @@
 #include <math.h>
 #include "fonts.h"
 
-
 // Command codes:
 #define COL_ADDR_SET        0x2A
 #define ROW_ADDR_SET        0x2B
@@ -67,7 +66,7 @@ void GC9A01_write_continue(uint8_t *data, size_t len);
 void GC9A01_write_data(uint8_t *data, size_t len);
 void GC9A01_write_command(uint8_t cmd);
 
-/* Display frame func */
+/* Display picture func */
 void GC9A01_set_frame(struct GC9A01_frame frame);
 void GC9A01_fonts_init(void);
 void GC9A01_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
