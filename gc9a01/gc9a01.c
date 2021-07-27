@@ -10,7 +10,7 @@
 
 #define ORIENTATION 2 // Set the display orientation 0,1,2,3
 
-#define SPI 1 // SPI (1) or SPIM (0) mode
+#define SPI 0 // SPI (1) or SPIM (0) mode
 
 #define RESET_ON            nrf_gpio_pin_set(LCD_RES_Pin)
 #define RESET_OFF           nrf_gpio_pin_clear(LCD_RES_Pin)
@@ -423,13 +423,12 @@ void GC9A01_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h,
 		for (uint16_t col = 0; col < w+1; col++) {		
             if (row == 0 && col == 0) {
                 GC9A01_write(color_new, sizeof(color_new));
-            }
-            else {
+            } else {  
                 GC9A01_write_continue(color_new, sizeof(color_new));
             }
         }
     }
-
+ 
     frame.start.X = 0;
     frame.start.Y = 0;
     frame.end.X = 239;

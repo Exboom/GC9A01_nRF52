@@ -23,7 +23,7 @@ string(CONCAT C_FLAGS_GCC
     " -mthumb" 
     " -mabi=aapcs"
     " -Wall" 
-    " -Werror"
+    # " -Werror"
     " -mfloat-abi=hard" 
     " -mfpu=fpv4-sp-d16"
     " -ffunction-sections"

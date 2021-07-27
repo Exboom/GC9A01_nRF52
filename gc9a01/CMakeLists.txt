@@ -15,6 +15,7 @@ target_include_directories(${PROJECT_NAME}
     PUBLIC
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/fonts
+        ${PROJECT_SOURCE_DIR}/threedimensional
     )
 
 target_link_libraries(${PROJECT_NAME}
